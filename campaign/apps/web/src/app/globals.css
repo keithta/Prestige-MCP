@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #10151c;
+  --color-surface: #ffffff;
+  --color-muted: #64748b;
+  --color-line: #e2e8f0;
+  --color-canvas: #f6f8fb;
+  --color-accent: #1d4ed8;
+  --color-danger: #b91c1c;
+  --color-warn: #b45309;
+  --color-ok: #15803d;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* A banner the operator cannot miss when sending is globally halted. */
+.stop-banner {
+  background: var(--color-danger);
+  color: white;
+  font-weight: 600;
+}

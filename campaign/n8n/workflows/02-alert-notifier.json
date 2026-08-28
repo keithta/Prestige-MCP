@@ -1,0 +1,84 @@
+{
+  "name": "Campaign — alert notifier",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, severity::text AS severity, alert_key, title, detail, created_at\n  FROM campaign.alerts\n WHERE resolved_at IS NULL\n   AND notified_at IS NULL\n ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END, created_at\n LIMIT 20",
+        "options": {}
+      },
+      "id": "fetch-alerts",
+      "name": "Unnotified alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 300],
+      "notes": "Read-only. Uses the campaign_readonly role, which is granted SELECT on alerts and UPDATE only on alerts.notified_at."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": { "type": "number", "operation": "exists", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-alerts",
+      "name": "Anything to send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.CAMPAIGN_ALERT_EMAIL }}",
+        "subject": "={{ '[' + $json.severity.toUpperCase() + '] ' + $json.title }}",
+        "emailType": "text",
+        "message": "={{ $json.detail + '\\n\\nAlert: ' + $json.alert_key + '\\nRaised: ' + $json.created_at + '\\n\\nOpen the campaign console to acknowledge or resolve.' }}",
+        "options": {}
+      },
+      "id": "notify",
+      "name": "Notify the operator",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [960, 220],
+      "notes": "Replace with whichever channel you prefer (Slack, Teams, SMS). This node never touches campaign data."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE campaign.alerts SET notified_at = now() WHERE id = $1",
+        "options": { "queryReplacement": "={{ $json.id }}" }
+      },
+      "id": "mark-notified",
+      "name": "Mark as notified",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1200, 220],
+      "notes": "notified_at is the only column n8n may write, anywhere in the schema."
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": { "main": [[{ "node": "Unnotified alerts", "type": "main", "index": 0 }]] },
+    "Unnotified alerts": { "main": [[{ "node": "Anything to send?", "type": "main", "index": 0 }]] },
+    "Anything to send?": { "main": [[{ "node": "Notify the operator", "type": "main", "index": 0 }], []] },
+    "Notify the operator": { "main": [[{ "node": "Mark as notified", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "campaign" }]
+}

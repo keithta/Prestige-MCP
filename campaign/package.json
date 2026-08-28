@@ -1,0 +1,56 @@
+{
+  "name": "campaign-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Microsoft Graph email campaign application \u2014 control plane, execution plane, and safety layer",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build:packages",
+    "typecheck": "tsc -b packages/core packages/graph packages/testing apps/worker --pretty",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "db:up": "bash scripts/pg-local.sh up",
+    "db:down": "bash scripts/pg-local.sh down",
+    "db:reset": "bash scripts/pg-local.sh reset",
+    "db:url": "bash scripts/pg-local.sh url",
+    "migrate": "tsx scripts/migrate.ts",
+    "verify-env": "tsx scripts/verify-env.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:concurrency": "vitest run --config vitest.concurrency.config.ts",
+    "test:e2e": "playwright test",
+    "dev:worker": "npm -w @campaign/worker run dev",
+    "dev:web": "npm -w @campaign/web run dev",
+    "dev:mock-graph": "npm -w @campaign/testing run mock-graph",
+    "create-owner": "tsx scripts/create-owner.ts",
+    "build:web": "npm -w @campaign/web run build",
+    "verify-graph": "tsx scripts/verify-graph.ts",
+    "build:packages": "tsc -b packages/core packages/graph packages/testing apps/worker",
+    "prepare": "npm run build:packages",
+    "pretest": "npm run build:packages",
+    "pretest:concurrency": "npm run build:packages",
+    "prebuild:web": "npm run build:packages",
+    "clean": "rm -rf packages/*/dist apps/worker/dist apps/web/.next *.tsbuildinfo packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "dotenv": "^16.4.7",
+    "eslint": "^8.57.1",
+    "pg": "^8.13.1",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

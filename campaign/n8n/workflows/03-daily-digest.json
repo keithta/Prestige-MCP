@@ -1,0 +1,47 @@
+{
+  "name": "Campaign — daily digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 13 * * *" }] }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily at 13:00 UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT q.sent_last_24h, q.queued, q.ready_now, q.in_flight,\n       q.needs_reconciliation, q.expired_leases, q.open_critical_alerts,\n       q.emergency_stop, q.production_mode,\n       (SELECT count(*) FROM campaign.campaign_progress WHERE status = 'running') AS running_campaigns\n  FROM campaign.queue_health q",
+        "options": {}
+      },
+      "id": "fetch-health",
+      "name": "Queue health",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $env.CAMPAIGN_ALERT_EMAIL }}",
+        "subject": "Campaign daily digest",
+        "emailType": "text",
+        "message": "={{ 'Sent in the last 24h: ' + $json.sent_last_24h + '\\nQueued: ' + $json.queued + ' (' + $json.ready_now + ' ready now)\\nIn flight: ' + $json.in_flight + '\\nAwaiting reconciliation: ' + $json.needs_reconciliation + '\\nExpired leases: ' + $json.expired_leases + '\\nOpen critical alerts: ' + $json.open_critical_alerts + '\\nRunning campaigns: ' + $json.running_campaigns + '\\n\\nEmergency stop: ' + $json.emergency_stop + '\\nProduction mode: ' + $json.production_mode }}",
+        "options": {}
+      },
+      "id": "send-digest",
+      "name": "Send the digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [720, 300]
+    }
+  ],
+  "connections": {
+    "Daily at 13:00 UTC": { "main": [[{ "node": "Queue health", "type": "main", "index": 0 }]] },
+    "Queue health": { "main": [[{ "node": "Send the digest", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "campaign" }]
+}
