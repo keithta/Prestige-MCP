@@ -132,6 +132,12 @@ CREATE POLICY compliance_settings_owner_write ON campaign.compliance_settings
 CREATE POLICY suppressions_operator_insert ON campaign.suppressions
   FOR INSERT TO authenticated WITH CHECK (campaign.has_role('operator'));
 
+-- Alerts: an operator may acknowledge or resolve, but never create or delete
+-- one. Alerts are raised by the system as a record of what happened.
+CREATE POLICY alerts_operator_update ON campaign.alerts
+  FOR UPDATE TO authenticated
+  USING (campaign.has_role('operator')) WITH CHECK (campaign.has_role('operator'));
+
 -- ---------------------------------------------------------------------------
 -- Deliberately NOT granted to the UI:
 --   * UPDATE/DELETE on email_jobs        -- state changes go through functions
@@ -152,6 +158,11 @@ GRANT INSERT, UPDATE, DELETE ON
 TO authenticated;
 GRANT INSERT ON campaign.suppressions TO authenticated;
 GRANT UPDATE ON campaign.app_profiles, campaign.compliance_settings TO authenticated;
+-- Owner-only configuration. The RLS policies above decide WHO; these grants
+-- are what let the statement reach RLS at all.
+GRANT INSERT, UPDATE, DELETE ON campaign.sender_accounts, campaign.test_recipients TO authenticated;
+-- Acknowledging and resolving an alert is an operator action.
+GRANT UPDATE ON campaign.alerts TO authenticated;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA campaign TO authenticated;
 
 -- The audit trail is append-only for EVERY role, service_role included.
@@ -173,48 +184,36 @@ REVOKE ALL ON campaign.email_jobs, campaign.contacts, campaign.campaigns,
 FROM campaign_readonly;
 
 -- ---------------------------------------------------------------------------
--- Function privileges. SECURITY DEFINER functions must not be executable by
--- the anonymous role.
+-- Function privileges.
+--
+-- An allowlist here proved to be the wrong shape. CHECK constraints, generated
+-- columns and triggers all execute functions AS THE CALLING USER, so a blanket
+-- revoke silently breaks ordinary inserts with "permission denied for function
+-- ..." -- and the list of functions a constraint might reach is not something a
+-- reviewer can reliably keep in their head.
+--
+-- So the model is inverted: the control plane may execute anything in this
+-- schema EXCEPT the execution-plane functions, which are enumerated explicitly
+-- below. That list is short, security-relevant, and obvious to review -- and
+-- adding a new helper function can no longer break inserts by omission.
 -- ---------------------------------------------------------------------------
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA campaign FROM PUBLIC, anon;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA campaign TO authenticated;
 
--- Control-plane functions: the UI.
-GRANT EXECUTE ON FUNCTION
-  campaign.approve_campaign(uuid, text),
-  campaign.set_campaign_content(uuid, text, text, text),
-  campaign.start_campaign(uuid),
-  campaign.pause_campaign(uuid, text),
-  campaign.resume_campaign(uuid),
-  campaign.stop_campaign(uuid, text),
-  campaign.set_emergency_stop(boolean, text),
-  campaign.set_production_mode(boolean, text),
-  campaign.set_sender_status(uuid, campaign.sender_status, text),
-  campaign.materialize_campaign_jobs(uuid),
-  campaign.add_suppression(text, campaign.suppression_reason, campaign.suppression_scope, uuid, text, text),
-  campaign.revoke_suppression(uuid, text),
-  campaign.requeue_job(uuid, text),
-  campaign.authorize_send(uuid, timestamptz),
-  campaign.send_denial_reason(uuid, timestamptz),
-  campaign.is_suppressed(text, uuid),
-  campaign.suppression_reason_for(text, uuid),
-  campaign.is_within_window(uuid, timestamptz),
-  campaign.next_window_open(uuid, timestamptz),
-  campaign.compliance_problems(uuid),
-  campaign.render_template(text, campaign.contacts, boolean, jsonb),
-  campaign.html_escape(text),
-  campaign.canonical_email(text),
-  campaign.email_domain(text),
-  campaign.content_hash(text, text, text),
-  campaign.has_role(campaign.app_role),
-  campaign.current_role_level(),
-  campaign.current_user_id(),
-  campaign.sender_sent_in_hour(uuid, timestamptz),
-  campaign.sender_sent_today(uuid, timestamptz),
-  campaign.campaign_sent_in_hour(uuid, timestamptz),
-  campaign.campaign_sent_today(uuid, timestamptz)
-TO authenticated;
+-- The execution plane. Only the worker may call these: they are what turns a
+-- database row into an email leaving the building.
+REVOKE EXECUTE ON FUNCTION
+  campaign.claim_email_jobs(text, integer, integer, uuid),
+  campaign.mark_sending(uuid, text),
+  campaign.mark_sent(uuid, text, text, text, integer, text),
+  campaign.mark_failed(uuid, text, campaign.failure_class, text, text, integer, text, integer),
+  campaign.reap_expired_leases(timestamptz),
+  campaign.release_worker_leases(text),
+  campaign.resolve_reconciliation(uuid, boolean, text, text, text, text),
+  campaign.send_denial_reason_for_inflight(uuid),
+  campaign.apply_denial(uuid, text, timestamptz)
+FROM authenticated;
 
--- Execution-plane functions: the worker only.
 GRANT EXECUTE ON FUNCTION
   campaign.claim_email_jobs(text, integer, integer, uuid),
   campaign.mark_sending(uuid, text),

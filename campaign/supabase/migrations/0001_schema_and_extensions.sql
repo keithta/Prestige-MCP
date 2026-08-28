@@ -15,7 +15,14 @@ CREATE SCHEMA IF NOT EXISTS campaign;
 
 -- citext gives us case-insensitive email comparison at the type level, so a
 -- duplicate can never slip through because of casing.
-CREATE EXTENSION IF NOT EXISTS citext;
+--
+-- The target schema is explicit. Without it, CREATE EXTENSION follows
+-- search_path, and a connecting role named `campaign` makes "$user" resolve to
+-- our own schema -- which would then put citext's operators inside the schema
+-- whose function privileges we lock down in 0017, breaking every `=`
+-- comparison. On Supabase citext already exists in `extensions`, so this is a
+-- no-op there.
+CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 
 -- Nothing is reachable by default; every role is granted explicitly later.
 REVOKE ALL ON SCHEMA campaign FROM PUBLIC;

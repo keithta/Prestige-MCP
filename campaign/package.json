@@ -28,16 +28,19 @@
     "test:e2e": "playwright test",
     "dev:worker": "npm -w @campaign/worker run dev",
     "dev:web": "npm -w @campaign/web run dev",
-    "dev:mock-graph": "npm -w @campaign/testing run mock-graph"
+    "dev:mock-graph": "npm -w @campaign/testing run mock-graph",
+    "create-owner": "tsx scripts/create-owner.ts",
+    "build:web": "npm -w @campaign/web run build"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
     "@typescript-eslint/eslint-plugin": "^8.18.0",
     "@typescript-eslint/parser": "^8.18.0",
     "dotenv": "^16.4.7",
     "eslint": "^8.57.1",
     "pg": "^8.13.1",
-    "@types/pg": "^8.11.10",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
