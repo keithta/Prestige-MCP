@@ -12,7 +12,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:packages",
     "typecheck": "tsc -b packages/core packages/graph packages/testing apps/worker --pretty",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
@@ -31,7 +31,13 @@
     "dev:mock-graph": "npm -w @campaign/testing run mock-graph",
     "create-owner": "tsx scripts/create-owner.ts",
     "build:web": "npm -w @campaign/web run build",
-    "verify-graph": "tsx scripts/verify-graph.ts"
+    "verify-graph": "tsx scripts/verify-graph.ts",
+    "build:packages": "tsc -b packages/core packages/graph packages/testing apps/worker",
+    "prepare": "npm run build:packages",
+    "pretest": "npm run build:packages",
+    "pretest:concurrency": "npm run build:packages",
+    "prebuild:web": "npm run build:packages",
+    "clean": "rm -rf packages/*/dist apps/worker/dist apps/web/.next *.tsbuildinfo packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
