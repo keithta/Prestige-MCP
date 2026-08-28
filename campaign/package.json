@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Microsoft Graph email campaign application — control plane, execution plane, and safety layer",
+  "description": "Microsoft Graph email campaign application \u2014 control plane, execution plane, and safety layer",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -30,7 +30,8 @@
     "dev:web": "npm -w @campaign/web run dev",
     "dev:mock-graph": "npm -w @campaign/testing run mock-graph",
     "create-owner": "tsx scripts/create-owner.ts",
-    "build:web": "npm -w @campaign/web run build"
+    "build:web": "npm -w @campaign/web run build",
+    "verify-graph": "tsx scripts/verify-graph.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

@@ -6,9 +6,9 @@
  * denial, and the dangerous one -- a message that IS delivered but whose
  * response never arrives.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
-  forceSent, jobStatuses, resetDatabase, seedCampaign, startMockGraph, type MockGraph,
+  jobStatuses, resetDatabase, seedCampaign, startMockGraph, type MockGraph,
 } from '@campaign/testing';
 import { loadGraphConfig, loadWorkerConfig, createLogger, type Pool } from '@campaign/core';
 import { Worker } from '../../apps/worker/src/worker.js';

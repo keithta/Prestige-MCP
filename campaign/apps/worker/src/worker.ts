@@ -10,7 +10,9 @@ import {
   acquireWorkerLock,
   claimEmailJobs,
   getQueueHealth,
+  getSenderForJob,
   reapExpiredLeases,
+  recordGraphDraftId,
   releaseWorkerLeases,
   releaseWorkerLock,
   type EmailJob,
@@ -60,10 +62,11 @@ export class Worker {
     this.graph = new GraphClient(deps.graphConfig, tokens, async (jobId, draftId) => {
       // Persist the draft id BEFORE the send is attempted. Without this, an
       // ambiguous send has no handle to reconcile against.
-      await deps.db.query(
-        'UPDATE campaign.email_jobs SET graph_draft_id = $2 WHERE id = $1',
-        [jobId, draftId],
-      );
+      //
+      // Through a function, not an UPDATE: the worker's role holds no write
+      // privilege on email_jobs, which is what makes claim_email_jobs() its
+      // only route to a sendable email.
+      await recordGraphDraftId(deps.db, jobId, draftId);
     });
   }
 
@@ -71,18 +74,7 @@ export class Worker {
     const cached = this.senderCache.get(job.sender_account_id);
     if (cached) return cached;
 
-    const { rows } = await this.deps.db.query<{
-      mailbox_address: string;
-      min_interval_seconds: number;
-      tenant_id: string | null;
-      reply_to: string | null;
-    }>(
-      `SELECT s.mailbox_address, s.min_interval_seconds, s.tenant_id,
-              (SELECT reply_to::text FROM campaign.compliance_settings WHERE id = true) AS reply_to
-         FROM campaign.sender_accounts s WHERE s.id = $1`,
-      [job.sender_account_id],
-    );
-    const row = rows[0];
+    const row = await getSenderForJob(this.deps.db, job.id);
     if (!row) throw new Error(`sender account ${job.sender_account_id} not found`);
 
     // A worker configured for one tenant must never send from a mailbox
@@ -95,6 +87,8 @@ export class Worker {
       );
     }
 
+    this.setAppBaseUrl(row.app_base_url);
+
     const info: SenderInfo = {
       mailbox: row.mailbox_address,
       replyTo: row.reply_to,
@@ -105,12 +99,9 @@ export class Worker {
     return info;
   }
 
-  private async getAppBaseUrl(): Promise<string> {
-    if (this.appBaseUrl !== null) return this.appBaseUrl;
-    const { rows } = await this.deps.db.query<{ app_base_url: string | null }>(
-      'SELECT app_base_url FROM campaign.compliance_settings WHERE id = true',
-    );
-    this.appBaseUrl = (rows[0]?.app_base_url ?? '').replace(/\/+$/, '');
+  /** Cached from the first job of the cycle; it changes only in Settings. */
+  private setAppBaseUrl(value: string | null): string {
+    this.appBaseUrl = (value ?? '').replace(/\/+$/, '');
     return this.appBaseUrl;
   }
 
@@ -178,6 +169,10 @@ export class Worker {
   async runCycle(): Promise<{ claimed: number; sent: number; failed: number }> {
     const { db, config, logger } = this.deps;
 
+    // Cleared each cycle so a change made in Settings -- a paused mailbox, a new
+    // application URL -- lands on the next poll rather than needing a restart.
+    this.senderCache.clear();
+
     // Recover anything abandoned by a dead worker before claiming more.
     const reaped = await reapExpiredLeases(db);
     if (reaped.released) this.metrics.increment('leases_reaped_total', reaped.released);
@@ -215,7 +210,6 @@ export class Worker {
     this.metrics.increment('jobs_claimed_total', jobs.length);
     if (jobs.length === 0) return { claimed: 0, sent: 0, failed: 0 };
 
-    const appBaseUrl = await this.getAppBaseUrl();
     let sent = 0;
     let failed = 0;
 
@@ -227,6 +221,7 @@ export class Worker {
       }
 
       const sender = await this.senderFor(job);
+      const appBaseUrl = this.appBaseUrl ?? '';
 
       const outcome = await sendOneJob(
         {

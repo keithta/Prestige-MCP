@@ -248,10 +248,11 @@ describe('check 9 - rate limits', () => {
 
 describe('check 11 - duplicate protection', () => {
   it('refuses a second job for an address this campaign already sent to', async () => {
-    const { campaignId, jobIds, senderId } = await seedCampaign(db, {
+    const { campaignId, senderId, jobIds } = await seedCampaign(db, {
       recipients: ['dup@example.com', 'other@example.com'],
     });
-    await forceSent(db, jobIds[0]!);
+    const firstJobId = jobIds[0]!;
+    await forceSent(db, firstJobId);
     // Force a second job to the same address past the unique index, to prove
     // the authorization check catches what the index would normally prevent.
     await db.query(
@@ -263,7 +264,7 @@ describe('check 11 - duplicate protection', () => {
         WHERE c.email = 'other@example.com' AND j.id = $3
         LIMIT 1
        ON CONFLICT DO NOTHING`,
-      [campaignId, senderId, jobIds[0]!],
+      [campaignId, senderId, firstJobId],
     );
     const { rows } = await db.query<{ id: string }>(
       "SELECT id FROM campaign.email_jobs WHERE recipient_email='dup@example.com' AND status='queued'",
@@ -276,7 +277,7 @@ describe('check 11 - duplicate protection', () => {
 
 describe('check 12 - test and production mode gates', () => {
   it('refuses a recipient who is not on the test allowlist', async () => {
-    const { jobIds } = await seedCampaign(db, {
+    await seedCampaign(db, {
       recipients: ['allowed@example.com', 'notallowed@example.com'],
       allowlist: ['allowed@example.com'],
     });

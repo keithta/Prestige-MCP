@@ -1,0 +1,79 @@
+{
+  "name": "Campaign — worker heartbeat",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 5 }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CAMPAIGN_WORKER_URL }}/tick",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 10000,
+          "response": { "response": { "neverError": true, "fullResponse": true } }
+        }
+      },
+      "id": "tick",
+      "name": "Wake the sending worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300],
+      "notes": "This endpoint only shortens the wait before the worker's next poll. It cannot cause a send: every job is still checked by the database's authorization function. If this workflow is disabled, sending simply proceeds on the worker's own poll interval."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": { "type": "number", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-response",
+      "name": "Did the worker answer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT campaign.raise_alert('worker_unreachable', 'critical', 'Sending worker is not responding', $1, NULL, NULL, NULL)",
+        "options": {
+          "queryReplacement": "={{ 'The heartbeat could not reach the worker at ' + $env.CAMPAIGN_WORKER_URL + '. Status: ' + $json.statusCode }}"
+        }
+      },
+      "id": "raise-alert",
+      "name": "Raise an alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [960, 220],
+      "notes": "Requires a Postgres credential using the campaign_readonly role plus EXECUTE on raise_alert. n8n has no write access to email_jobs."
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": { "main": [[{ "node": "Wake the sending worker", "type": "main", "index": 0 }]] },
+    "Wake the sending worker": { "main": [[{ "node": "Did the worker answer?", "type": "main", "index": 0 }]] },
+    "Did the worker answer?": { "main": [[{ "node": "Raise an alert", "type": "main", "index": 0 }], []] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "campaign" }]
+}

@@ -138,6 +138,15 @@ CREATE POLICY alerts_operator_update ON campaign.alerts
   FOR UPDATE TO authenticated
   USING (campaign.has_role('operator')) WITH CHECK (campaign.has_role('operator'));
 
+-- The notifier role may read every alert and stamp notified_at. Grants alone
+-- are not enough once RLS is enabled: without a policy the reads silently
+-- return nothing and the update silently touches no rows.
+CREATE POLICY alerts_notifier_select ON campaign.alerts
+  FOR SELECT TO campaign_readonly USING (true);
+
+CREATE POLICY alerts_notifier_update ON campaign.alerts
+  FOR UPDATE TO campaign_readonly USING (true) WITH CHECK (true);
+
 -- ---------------------------------------------------------------------------
 -- Deliberately NOT granted to the UI:
 --   * UPDATE/DELETE on email_jobs        -- state changes go through functions
@@ -248,12 +257,20 @@ $$;
 
 GRANT EXECUTE ON FUNCTION campaign.public_unsubscribe(text, uuid) TO anon, authenticated, service_role;
 
--- Views inherit the RLS of their base tables (security_invoker), so a viewer
--- sees exactly what the policies allow.
-ALTER VIEW campaign.job_monitor        SET (security_invoker = on);
-ALTER VIEW campaign.campaign_progress  SET (security_invoker = on);
-ALTER VIEW campaign.queue_health       SET (security_invoker = on);
-ALTER VIEW campaign.sender_capacity    SET (security_invoker = on);
+-- View security is split deliberately by what each view exposes.
+--
+-- job_monitor returns individual recipients, subjects and rendered bodies, so
+-- it runs as the INVOKER: the reader needs their own privileges on email_jobs,
+-- and RLS applies row by row.
+ALTER VIEW campaign.job_monitor SET (security_invoker = on);
+
+-- The rollups expose only counts, campaign names and mailbox addresses -- no
+-- recipient data at all. They run as the view owner so an observer (n8n's
+-- read-only role, or a viewer) can read operational health without being
+-- granted access to the underlying contact and job tables.
+ALTER VIEW campaign.campaign_progress SET (security_invoker = off);
+ALTER VIEW campaign.queue_health      SET (security_invoker = off);
+ALTER VIEW campaign.sender_capacity   SET (security_invoker = off);
 
 GRANT SELECT ON campaign.job_monitor, campaign.campaign_progress,
                 campaign.queue_health, campaign.sender_capacity

@@ -205,13 +205,41 @@ export async function getJobsNeedingReconciliation(
   limit = 25,
 ): Promise<EmailJob[]> {
   const { rows } = await db.query<EmailJob>(
-    `SELECT * FROM campaign.email_jobs
-      WHERE status = 'needs_reconciliation'
-      ORDER BY updated_at
-      LIMIT $1`,
+    'SELECT * FROM campaign.jobs_needing_reconciliation($1)',
     [limit],
   );
   return rows;
+}
+
+/**
+ * Record the Graph draft id before the send is attempted.
+ *
+ * Goes through a function rather than an UPDATE so the worker's database role
+ * needs no write privilege on email_jobs at all -- which is what makes
+ * claim_email_jobs() its genuinely only route to a sendable email.
+ */
+export async function recordGraphDraftId(
+  db: pg.Pool,
+  jobId: string,
+  draftId: string,
+): Promise<void> {
+  await db.query('SELECT campaign.record_graph_draft_id($1, $2)', [jobId, draftId]);
+}
+
+export interface SenderForJob {
+  mailbox_address: string;
+  min_interval_seconds: number;
+  tenant_id: string | null;
+  reply_to: string | null;
+  app_base_url: string | null;
+}
+
+export async function getSenderForJob(db: pg.Pool, jobId: string): Promise<SenderForJob | null> {
+  const { rows } = await db.query<SenderForJob>(
+    'SELECT * FROM campaign.sender_for_job($1)',
+    [jobId],
+  );
+  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------

@@ -101,3 +101,73 @@ npm run build
 npx @modelcontextprotocol/inspector node dist/index.js
 ```
 (For HTTP mode, point the inspector at `http://localhost:3000/mcp` instead.)
+
+---
+
+# Microsoft Graph email campaign application
+
+This repository also contains a production-ready email campaign system, under
+[`campaign/`](campaign/). It is entirely separate from the MCP server above:
+its own workspace, its own dependencies, its own deployment. The MCP server's
+build and its Railway service are unaffected.
+
+## What it does
+
+Import contacts, build a campaign, approve it, schedule it within allowed days
+and hours, and send it through a Microsoft 365 mailbox via Microsoft Graph —
+with hard guarantees that nothing is sent accidentally, without authorization,
+or twice.
+
+## The one thing worth knowing
+
+There is a clean split between the **control plane** (where campaigns are
+created and approved) and the **execution plane** (which submits already
+authorized emails to Graph), and **the database is the only arbiter between
+them**.
+
+An email is never sent because a workflow fired or a schedule elapsed. It is
+sent because `campaign.send_denial_reason()` returned `NULL` for that specific
+email at that specific instant, inside the same transaction that leased it. A
+worker that starts for any reason gets nothing back unless every one of twelve
+checks passes.
+
+## Getting started
+
+```bash
+cd campaign
+npm install
+npm run db:up          # a disposable PostgreSQL cluster; Docker not required
+cp .env.example .env   # set DATABASE_URL to what db:up printed
+npm run migrate
+npm run create-owner -- you@example.com "Your Name"
+npm run dev:web        # http://localhost:3000
+```
+
+Full instructions in [docs/INSTALL.md](docs/INSTALL.md).
+
+## Documentation
+
+| | |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | How the system decides to send an email |
+| [Installation](docs/INSTALL.md) | Local, Supabase, and the first real send |
+| [Graph setup](docs/GRAPH-SETUP.md) | Entra ID, permissions, and the access policy |
+| [Environment](docs/ENVIRONMENT.md) | Every variable |
+| [Deployment](docs/DEPLOY.md) | Railway and the local Windows machine |
+| [Operating SOP](docs/SOP.md) | Running campaigns day to day |
+| [Recovery](docs/RECOVERY.md) | When something goes wrong |
+| [Security](docs/SECURITY.md) | The posture, and why |
+| [n8n](docs/N8N-SETUP.md) | Automation with no send authority |
+
+## Tests
+
+```bash
+cd campaign
+npm test                  # unit, integration and safety
+npm run test:concurrency  # 8 workers x 1,000 jobs, asserts zero duplicates
+npm run test:e2e          # the real UI in a browser
+```
+
+They run against a real PostgreSQL cluster and a stand-in Microsoft Graph server
+that can inject every way Graph fails in production — including the one that
+matters most: a message that is delivered while the response is lost.

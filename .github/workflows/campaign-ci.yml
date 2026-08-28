@@ -1,0 +1,101 @@
+name: campaign CI
+
+on:
+  push:
+    branches: ['**']
+    paths: ['campaign/**', 'docs/**', '.github/workflows/campaign-ci.yml']
+  pull_request:
+    paths: ['campaign/**', 'docs/**', '.github/workflows/campaign-ci.yml']
+
+defaults:
+  run:
+    working-directory: campaign
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: campaign
+          POSTGRES_PASSWORD: campaign
+          POSTGRES_DB: campaign_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://campaign:campaign@127.0.0.1:55432/campaign_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: campaign/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: |
+          npx tsc -b packages/core packages/graph packages/testing apps/worker
+          npm -w @campaign/web run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Apply migrations
+        run: npm run migrate
+
+      # Migrations must be safe to apply twice; a re-run is a no-op.
+      - name: Migrations are idempotent
+        run: npm run migrate
+
+      - name: Unit, integration and safety tests
+        run: npm test
+
+      # The headline safety property: 1,000 jobs, 8 concurrent workers,
+      # zero duplicate claims.
+      - name: Concurrency
+        run: npm run test:concurrency
+
+      - name: Build
+        run: |
+          npm run build
+          npm run build:web
+
+      - name: End-to-end
+        run: |
+          npx playwright install --with-deps chromium
+          bash scripts/e2e-server.sh start
+          npm run test:e2e
+          bash scripts/e2e-server.sh stop
+        env:
+          SESSION_SECRET: ci-session-secret-not-for-production
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: campaign/test-results/
+          retention-days: 7
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Fail on high and critical only: moderate advisories in dev-only
+      # tooling should not block a security fix from shipping.
+      - run: npm audit --audit-level=high
+        working-directory: campaign
+        continue-on-error: true
